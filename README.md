@@ -3,4 +3,4 @@ Sky‑Queue 是机场安检通道智能排队AI助手。 系统通过摄像头�
 问题反馈：ylin06326@gmail.com
 ————王柏涵 杨润林于2026/8/17
 ———————————————————————————————————————————————————————————————
-（被作业管理与登记困扰？使用ClassTrack试一试https://github.com/ylin06326-glitch/ClassTrack）
+（被作业管理与登记困扰？使用ClassTrack试一试https://github.com/ylin06326-glitch/ClassTrack ）
