@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sky Queue · 多场景人流分流引导系统</title>
+<meta name="description" content="Sky Queue 多场景人流分流引导系统 —— 纯本地 AI 视觉实时统计排队人数，分流引导至大屏、手机、灯带、点阵屏与智能工牌。">
+<link rel="icon" href="assets/logo.png">
+<style>
+/* ============================================================
+   Sky Queue 官网 · 深色工业机能风
+   参考鹰角《终末地》视觉语言：黑灰工业底 + 柠檬黄点缀
+   + 三角/六边形几何符号 + 全息悬浮面板
+   ============================================================ */
+
+:root{
+  /* 工业底色 */
+  --bg-0:#0b0c0e;
+  --bg-1:#111316;
+  --bg-2:#171a1e;
+  --bg-3:#1e2228;
+  --line:#2a2f36;
+  --line-hi:#3a4149;
+
+  /* 文字 */
+  --tx-1:#e8eaed;
+  --tx-2:#a8afb8;
+  --tx-3:#6b727c;
+
+  /* 柠檬黄 —— 品牌强调色 */
+  --yl:#f5e60c;
+  --yl-dim:#c9bd0a;
+  --yl-glow:rgba(245,230,12,.16);
+
+  /* 语义色 */
+  --ok:#4ade80;
+  --warn:#fbbf24;
+  --bad:#f87171;
+  --info:#60a5fa;
+
+  --r:2px;              /* 工业风：小圆角，近乎直角 */
+  --ease:cubic-bezier(.16,1,.3,1);
+  --maxw:1280px;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+
+body{
+  background:var(--bg-0);
+  color:var(--tx-1);
+  font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei","Noto Sans SC",-apple-system,sans-serif;
+  font-size:16px;
+  line-height:1.75;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* 英文模式用不同字体栈，呼应管理端 */
+body.en{
+  font-family:"Inter","Helvetica Neue",Arial,"PingFang SC",sans-serif;
+}
+/* 英文句子更长，缩小标题避免占满整屏 */
+body.en h1.hero-h1{font-size:clamp(38px,5.4vw,66px);line-height:1.04}
+body.en h2.title{font-size:clamp(26px,3.5vw,40px)}
+body.en .lead,body.en .hero-desc{font-size:15.5px;line-height:1.7}
+
+/* 全局网格底纹 —— 工业图纸感 */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px) 0 0/64px 64px,
+    linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px) 0 0/64px 64px;
+}
+/* 顶部柠檬黄光晕 */
+body::after{
+  content:'';position:fixed;top:-40vh;left:50%;transform:translateX(-50%);
+  width:120vw;height:80vh;z-index:0;pointer-events:none;
+  background:radial-gradient(ellipse at center,rgba(245,230,12,.07),transparent 65%);
+}
+body>*{position:relative;z-index:1}
+
+::selection{background:var(--yl);color:#000}
+
+/* ============ 顶栏 ============ */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  height:64px;display:flex;align-items:center;gap:28px;
+  padding:0 28px;
+  background:rgba(11,12,14,.82);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.brand img{width:34px;height:34px;border-radius:var(--r);display:block}
+.brand-txt b{display:block;font-size:15px;font-weight:700;letter-spacing:.14em;line-height:1.2}
+.brand-txt span{display:block;font-size:9px;color:var(--tx-3);letter-spacing:.3em}
+
+.nav{display:flex;gap:2px;margin-left:auto;flex-wrap:wrap}
+.nav a{
+  color:var(--tx-2);text-decoration:none;font-size:13px;
+  padding:7px 13px;border-radius:var(--r);
+  transition:.22s var(--ease);position:relative;white-space:nowrap;
+}
+.nav a:hover{color:var(--yl);background:rgba(245,230,12,.07)}
+
+/* 语言切换 —— 模仿管理端分段控件 */
+.langsw{
+  display:flex;gap:2px;padding:3px;flex-shrink:0;
+  background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);
+}
+.langsw button{
+  font:inherit;font-size:12px;font-weight:600;letter-spacing:.08em;
+  padding:5px 13px;border:0;border-radius:1px;cursor:pointer;
+  background:transparent;color:var(--tx-3);transition:.2s var(--ease);
+}
+.langsw button:hover{color:var(--tx-1)}
+.langsw button.on{background:var(--yl);color:#000}
+
+.menu-btn{display:none;background:none;border:1px solid var(--line);color:var(--tx-1);
+  width:38px;height:38px;border-radius:var(--r);cursor:pointer;font-size:17px;line-height:1}
+
+/* ============ 通用 ============ */
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+section{position:relative}
+
+.eyebrow{
+  display:inline-flex;align-items:center;gap:10px;
+  font-size:11px;letter-spacing:.34em;color:var(--yl);
+  text-transform:uppercase;margin-bottom:20px;font-weight:600;
+}
+.eyebrow::before{content:'';width:26px;height:1px;background:var(--yl)}
+.eyebrow .no{color:var(--tx-3);letter-spacing:.12em}
+
+h2.title{
+  font-size:clamp(30px,4.4vw,52px);font-weight:800;
+  line-height:1.14;letter-spacing:-.02em;margin-bottom:18px;
+  position:relative;z-index:1;
+}
+h2.title em{font-style:normal;color:var(--yl);position:relative;display:inline-block;padding:0 .06em}
+h2.title em::after{
+  content:'';position:absolute;left:.06em;right:.06em;bottom:.1em;height:.16em;
+  background:var(--yl);opacity:.25;z-index:0;border-radius:1px;
+}
+/* em 内的文字需要压在色块之上 */
+h2.title em{isolation:isolate}
+h2.title em::after{z-index:-1}
+.lead{color:var(--tx-2);font-size:16.5px;max-width:70ch}
+.lead strong{color:var(--tx-1);font-weight:600}
+
+.sec-pad{padding:120px 0}
+.sec-line{height:1px;background:var(--line)}
+
+/* 卡片：全息面板 */
+.panel{
+  background:linear-gradient(160deg,var(--bg-2),var(--bg-1));
+  border:1px solid var(--line);border-radius:var(--r);
+  position:relative;overflow:hidden;
+}
+/* 面板角标 —— 鹰角式工业角标 */
+.panel::before,.panel::after{
+  content:'';position:absolute;width:11px;height:11px;pointer-events:none;
+  border-color:var(--yl);opacity:.5;
+}
+.panel::before{top:-1px;left:-1px;border-top:2px solid;border-left:2px solid}
+.panel::after{bottom:-1px;right:-1px;border-bottom:2px solid;border-right:2px solid}
+
+.tag{
+  display:inline-block;font-size:11px;letter-spacing:.14em;font-weight:600;
+  padding:4px 10px;border-radius:var(--r);
+  background:rgba(245,230,12,.1);color:var(--yl);border:1px solid rgba(245,230,12,.24);
+}
+
+/* 六边形装饰 */
+.hex{position:absolute;pointer-events:none;opacity:.05;z-index:0}
+
+/* ============ HERO ============ */
+.hero{
+  min-height:100vh;display:flex;align-items:center;
+  padding:130px 0 110px;overflow:hidden;
+}
+.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:64px;align-items:center;width:100%}
+
+.hero-badge{
+  display:inline-flex;align-items:center;gap:11px;
+  padding:7px 15px 7px 8px;border:1px solid var(--line-hi);border-radius:100px;
+  background:rgba(255,255,255,.03);font-size:12px;color:var(--tx-2);
+  margin-bottom:30px;letter-spacing:.04em;
+}
+.hero-badge .pill{
+  background:var(--yl);color:#000;font-weight:700;font-size:10.5px;
+  padding:3px 9px;border-radius:100px;letter-spacing:.1em;
+}
+
+h1.hero-h1{
+  font-size:clamp(46px,7.4vw,92px);font-weight:900;
+  line-height:.98;letter-spacing:-.035em;margin-bottom:8px;
+  position:relative;z-index:1;
+}
+h1.hero-h1 .l2{
+  display:block;font-size:.42em;font-weight:600;letter-spacing:.02em;
+  color:var(--tx-2);margin-top:16px;line-height:1.35;
+}
+h1.hero-h1 .hl{color:var(--yl);position:relative;display:inline-block;isolation:isolate;padding:0 .04em}
+h1.hero-h1 .hl::after{
+  content:'';position:absolute;left:.04em;right:.04em;bottom:.1em;height:.15em;
+  background:var(--yl);opacity:.28;z-index:-1;border-radius:1px;
+}
+
+.hero-desc{color:var(--tx-2);font-size:17px;max-width:56ch;margin:26px 0 34px}
+.hero-desc b{color:var(--tx-1);font-weight:600}
+
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:46px}
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:13px 26px;border-radius:var(--r);font-size:14.5px;font-weight:600;
+  text-decoration:none;cursor:pointer;border:1px solid transparent;
+  transition:.24s var(--ease);font-family:inherit;
+}
+.btn-p{background:var(--yl);color:#000}
+.btn-p:hover{background:#fff;transform:translateY(-2px);box-shadow:0 10px 34px rgba(245,230,12,.28)}
+.btn-g{background:transparent;color:var(--tx-1);border-color:var(--line-hi)}
+.btn-g:hover{border-color:var(--yl);color:var(--yl);transform:translateY(-2px)}
+
+/* Hero 数据条 */
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.hero-stats div{background:var(--bg-1);padding:17px 15px;text-align:center}
+.hero-stats b{display:block;font-size:26px;font-weight:800;color:var(--yl);line-height:1.1;letter-spacing:-.02em}
+.hero-stats span{display:block;font-size:11.5px;color:var(--tx-3);margin-top:5px;letter-spacing:.05em}
+
+/* Hero 视觉：Logo 悬浮 */
+.hero-vis{position:relative;display:flex;justify-content:center;align-items:center}
+.logo-frame{
+  position:relative;width:100%;max-width:400px;aspect-ratio:1;
+  display:flex;align-items:center;justify-content:center;
+}
+.logo-frame::before{
+  content:'';position:absolute;inset:-14%;border-radius:50%;
+  background:radial-gradient(circle,var(--yl-glow),transparent 66%);
+  animation:pulse 4.5s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.13);opacity:1}}
+
+.logo-plate{
+  position:relative;width:76%;aspect-ratio:1;border-radius:22px;
+  background:linear-gradient(155deg,rgba(255,255,255,.07),rgba(255,255,255,.015));
+  border:1px solid var(--line-hi);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 34px 90px rgba(0,0,0,.62),inset 0 1px 0 rgba(255,255,255,.09);
+  animation:float 7s ease-in-out infinite;
+}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-15px)}}
+.logo-plate img{width:76%;border-radius:16px;display:block}
+
+/* 全息扫描线 */
+.logo-plate::after{
+  content:'';position:absolute;left:9%;right:9%;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--yl),transparent);
+  box-shadow:0 0 16px var(--yl);opacity:.65;
+  animation:scan 3.6s ease-in-out infinite;
+}
+@keyframes scan{0%{top:12%;opacity:0}18%{opacity:.7}82%{opacity:.7}100%{top:88%;opacity:0}}
+
+/* Logo 四周 HUD 角标 */
+.hud-c{position:absolute;width:30px;height:30px;border-color:var(--yl);opacity:.75}
+.hud-c.tl{top:0;left:0;border-top:2px solid;border-left:2px solid}
+.hud-c.tr{top:0;right:0;border-top:2px solid;border-right:2px solid}
+.hud-c.bl{bottom:0;left:0;border-bottom:2px solid;border-left:2px solid}
+.hud-c.br{bottom:0;right:0;border-bottom:2px solid;border-right:2px solid}
+
+.hud-tag{
+  position:absolute;padding:5px 11px;background:rgba(11,12,14,.9);
+  border:1px solid var(--line-hi);border-radius:var(--r);
+  font-size:11px;letter-spacing:.1em;color:var(--tx-2);white-space:nowrap;
+  font-family:"SF Mono",Consolas,monospace;
+}
+.hud-tag.a{top:8%;left:-6%}
+.hud-tag.b{bottom:14%;right:-8%}
+.hud-tag i{color:var(--ok);font-style:normal}
+
+/* 滚动提示 */
+.scroll-hint{
+  position:absolute;bottom:22px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  font-size:9.5px;letter-spacing:.28em;color:var(--tx-3);
+}
+.scroll-hint .bar{width:1px;height:36px;background:linear-gradient(var(--yl),transparent);
+  animation:drop 1.9s ease-in-out infinite}
+@keyframes drop{0%{opacity:0;transform:scaleY(.2)}50%{opacity:1}100%{opacity:0;transform:scaleY(1)}}
+
+/* ============ 2. 问题 ============ */
+.prob-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:52px}
+.prob-card{padding:32px 28px}
+.prob-card h3{font-size:19px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.prob-card p{color:var(--tx-2);font-size:14.8px}
+.prob-card .ico{
+  width:34px;height:34px;flex-shrink:0;border-radius:var(--r);
+  display:grid;place-items:center;font-size:16px;
+  background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.26);color:var(--bad);
+}
+
+/* 恶性循环示意 */
+.loop{margin-top:28px;padding:38px 32px}
+.loop-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+  font-size:13.5px;color:var(--tx-2);margin-bottom:14px}
+.loop-node{
+  padding:11px 17px;background:var(--bg-3);border:1px solid var(--line-hi);
+  border-radius:var(--r);text-align:center;
+}
+.loop-node b{display:block;color:var(--tx-1);font-size:14px;font-weight:600}
+.loop-node span{font-size:11.5px;color:var(--tx-3)}
+.loop-arrow{color:var(--yl);font-size:17px;flex-shrink:0}
+.loop-eq{
+  margin-top:22px;padding-top:22px;border-top:1px dashed var(--line-hi);
+  text-align:center;font-size:17px;font-weight:700;color:var(--yl);
+}
+.loop-eq small{display:block;font-size:13px;color:var(--tx-2);font-weight:400;margin-top:7px}
+
+/* 方案对比表 */
+.tbl-wrap{margin-top:34px;overflow-x:auto;border:1px solid var(--line);border-radius:var(--r)}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:620px}
+th,td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--line)}
+th{
+  background:var(--bg-2);color:var(--yl);font-size:11.5px;
+  letter-spacing:.16em;font-weight:700;text-transform:uppercase;
+}
+th:first-child{color:var(--tx-2)}
+td{color:var(--tx-2)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:rgba(255,255,255,.022)}
+td.bad{color:var(--bad)}
+td.us{color:var(--ok);font-weight:600}
+tr.hl td{background:rgba(245,230,12,.05)}
+tr.hl td:first-child{color:var(--yl);font-weight:700}
+
+/* ============ 3. 架构 ============ */
+.arch{display:grid;gap:12px;margin-top:52px}
+.arch-layer{
+  display:grid;grid-template-columns:190px 1fr;gap:0;
+  background:linear-gradient(100deg,var(--bg-2),var(--bg-1));
+  border:1px solid var(--line);border-left:3px solid var(--yl);
+  border-radius:var(--r);overflow:hidden;transition:.26s var(--ease);
+}
+.arch-layer:hover{background:linear-gradient(100deg,var(--bg-3),var(--bg-2));transform:translateX(5px)}
+.arch-layer .k{padding:22px 20px;border-right:1px solid var(--line)}
+.arch-layer .k b{display:block;font-size:15.5px;font-weight:700;margin-bottom:3px}
+.arch-layer .k span{font-size:10.5px;letter-spacing:.2em;color:var(--tx-3);font-family:"SF Mono",Consolas,monospace}
+.arch-layer .v{padding:22px 24px;display:flex;align-items:center;flex-wrap:wrap;gap:9px}
+.chip{
+  font-size:12.5px;padding:6px 12px;background:var(--bg-0);
+  border:1px solid var(--line-hi);border-radius:var(--r);color:var(--tx-2);
+  transition:.2s var(--ease);
+}
+.chip:hover{border-color:var(--yl);color:var(--yl)}
+
+/* ============ 4. 界面展示 ============ */
+.shot{
+  position:relative;border:1px solid var(--line);border-radius:var(--r);
+  overflow:hidden;background:var(--bg-1);
+}
+.shot img{width:100%;display:block}
+.shot-bar{
+  display:flex;align-items:center;gap:9px;padding:10px 14px;
+  background:var(--bg-2);border-bottom:1px solid var(--line);
+}
+.shot-bar .dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}
+.shot-bar .dot:nth-child(2){background:var(--warn)}
+.shot-bar .dot:nth-child(3){background:var(--ok)}
+.shot-bar b{
+  margin-left:8px;font-size:12px;color:var(--tx-2);font-weight:500;
+  font-family:"SF Mono",Consolas,monospace;letter-spacing:.06em;
+}
+.shot-bar .live{
+  margin-left:auto;font-size:10px;letter-spacing:.14em;color:var(--ok);
+  display:flex;align-items:center;gap:5px;font-weight:600;
+}
+.shot-bar .live::before{content:'';width:5px;height:5px;border-radius:50%;
+  background:var(--ok);animation:blink 1.4s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+.shot-cap{padding:15px 18px;border-top:1px solid var(--line);font-size:13.5px;color:var(--tx-2)}
+.shot-cap b{color:var(--tx-1);display:block;margin-bottom:3px;font-size:14.5px}
+
+/* 三端展示布局 */
+.tri{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;margin-top:46px;align-items:start}
+.tri-side{display:grid;gap:20px}
+.tri-phone{max-width:290px;margin:0 auto;width:100%}
+
+/* 单张大图 */
+.shot-xl{margin-top:26px}
+
+/* ============ 5. 特色功能 ============ */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(288px,1fr));gap:16px;margin-top:50px}
+.feat{padding:28px 25px;transition:.28s var(--ease)}
+.feat:hover{transform:translateY(-5px);border-color:var(--line-hi);
+  box-shadow:0 20px 48px rgba(0,0,0,.44)}
+.feat .fi{
+  width:40px;height:40px;border-radius:var(--r);display:grid;place-items:center;
+  font-size:19px;margin-bottom:17px;
+  background:rgba(245,230,12,.1);border:1px solid rgba(245,230,12,.26);
+}
+.feat h3{font-size:16.5px;font-weight:700;margin-bottom:9px}
+.feat p{font-size:14.2px;color:var(--tx-2);line-height:1.72}
+.feat .kicker{
+  font-family:"SF Mono",Consolas,monospace;font-size:10.5px;
+  color:var(--yl);letter-spacing:.16em;margin-bottom:11px;display:block;
+}
+
+/* ============ 6. 场景 ============ */
+.scene-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:48px}
+.scene{
+  padding:30px 24px;border:1px solid var(--line);border-radius:var(--r);
+  background:var(--bg-1);transition:.28s var(--ease);position:relative;overflow:hidden;
+}
+.scene:hover{border-color:var(--yl);background:var(--bg-2);transform:translateY(-4px)}
+.scene .si{font-size:27px;margin-bottom:15px;display:block}
+.scene h3{font-size:16.5px;font-weight:700;margin-bottom:8px}
+.scene p{font-size:13.5px;color:var(--tx-2);line-height:1.7}
+
+/* 迁移流程 */
+.flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:40px;
+  padding:26px 28px}
+.flow-step{display:flex;align-items:center;gap:11px}
+.flow-step .n{
+  width:29px;height:29px;border-radius:50%;display:grid;place-items:center;
+  background:var(--yl);color:#000;font-weight:800;font-size:13px;flex-shrink:0;
+}
+.flow-step span{font-size:13.5px;color:var(--tx-2)}
+.flow-ar{color:var(--line-hi);font-size:15px}
+
+/* ============ 7. 隐私/技术亮点 ============ */
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:48px}
+.dual .panel{padding:32px 28px}
+.dual h3{font-size:19px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:11px}
+.dual .badge{
+  padding:3px 10px;font-size:10.5px;letter-spacing:.14em;border-radius:var(--r);font-weight:700;
+}
+.dual .b-ok{background:rgba(74,222,128,.12);color:var(--ok);border:1px solid rgba(74,222,128,.3)}
+.dual .b-no{background:rgba(96,165,250,.12);color:var(--info);border:1px solid rgba(96,165,250,.3)}
+.dual ul{list-style:none;display:grid;gap:11px}
+.dual li{font-size:14.2px;color:var(--tx-2);padding-left:24px;position:relative}
+.dual li::before{content:'▸';position:absolute;left:0;color:var(--yl)}
+.dual li b{color:var(--tx-1);font-weight:600}
+
+/* 技术栈标签云 */
+.stack{display:flex;flex-wrap:wrap;gap:9px;margin-top:44px}
+.stack span{
+  font-size:13px;padding:9px 16px;background:var(--bg-1);
+  border:1px solid var(--line);border-radius:var(--r);color:var(--tx-2);
+  font-family:"SF Mono",Consolas,monospace;transition:.22s var(--ease);
+}
+.stack span:hover{border-color:var(--yl);color:var(--yl);transform:translateY(-2px)}
+
+/* ============ 8. 成果/指标 ============ */
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden;margin-top:48px}
+.metric{background:var(--bg-1);padding:30px 24px;text-align:center;transition:.26s var(--ease)}
+.metric:hover{background:var(--bg-2)}
+.metric b{display:block;font-size:36px;font-weight:900;color:var(--yl);letter-spacing:-.03em;line-height:1}
+.metric span{display:block;font-size:12.5px;color:var(--tx-3);margin-top:9px}
+
+/* ============ 9. 团队 ============ */
+.team{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:46px}
+.member{
+  padding:28px 24px;text-align:center;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--bg-1);transition:.28s var(--ease);
+}
+.member:hover{border-color:var(--yl);transform:translateY(-4px)}
+.member .av{
+  width:62px;height:62px;border-radius:50%;margin:0 auto 16px;
+  display:grid;place-items:center;font-size:23px;font-weight:800;
+  background:linear-gradient(150deg,var(--bg-3),var(--bg-2));
+  border:1px solid var(--line-hi);color:var(--yl);
+}
+.member h3{font-size:16.5px;font-weight:700;margin-bottom:5px}
+.member p{font-size:12.5px;color:var(--tx-3);letter-spacing:.06em}
+
+/* ============ 页脚 ============ */
+footer{
+  border-top:1px solid var(--line);padding:56px 0 40px;margin-top:0;
+  background:var(--bg-1);
+}
+.foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:40px;margin-bottom:40px}
+.foot-brand .brand{margin-bottom:15px}
+.foot-brand p{font-size:13.5px;color:var(--tx-3);max-width:40ch;line-height:1.8}
+.foot-col h4{font-size:11.5px;letter-spacing:.2em;color:var(--yl);
+  text-transform:uppercase;margin-bottom:15px;font-weight:700}
+.foot-col a,.foot-col p{display:block;font-size:13.5px;color:var(--tx-2);
+  text-decoration:none;margin-bottom:9px;transition:.2s}
+.foot-col a:hover{color:var(--yl)}
+.foot-bot{
+  padding-top:26px;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;
+  font-size:12.5px;color:var(--tx-3);
+}
+
+/* ============ 响应式 ============ */
+@media (max-width:1080px){
+  .hero-grid{grid-template-columns:1fr;gap:52px}
+  .hero-vis{order:-1;max-width:400px;margin:0 auto}
+  .tri{grid-template-columns:1fr}
+  .foot-grid{grid-template-columns:1fr 1fr}
+  .dual{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  .nav{
+    position:absolute;top:64px;left:0;right:0;flex-direction:column;
+    background:rgba(11,12,14,.98);border-bottom:1px solid var(--line);
+    padding:10px;display:none;gap:1px;backdrop-filter:blur(20px);
+  }
+  .nav.open{display:flex}
+  .nav a{padding:11px 15px;font-size:14px}
+  .menu-btn{display:block;order:-1}
+  .topbar{gap:12px;padding:0 16px}
+  .brand-txt span{display:none}
+  .sec-pad{padding:84px 0}
+  .hero{padding:104px 0 76px;min-height:auto}
+  .prob-grid{grid-template-columns:1fr}
+  .arch-layer{grid-template-columns:1fr}
+  .arch-layer .k{border-right:0;border-bottom:1px solid var(--line)}
+  .hero-stats{grid-template-columns:repeat(2,1fr)}
+  .foot-grid{grid-template-columns:1fr}
+  .wrap{padding:0 18px}
+  .metric b{font-size:29px}
+  /* Logo 缩小并让 HUD 标签贴住容器，避免溢出 */
+  .logo-frame{max-width:250px}
+  .hud-tag{font-size:9.5px;padding:4px 8px}
+  .hud-tag.a{top:4%;left:0}
+  .hud-tag.b{bottom:9%;right:0}
+  .hud-c{width:20px;height:20px}
+  .scroll-hint{display:none}
+  .tri-phone{max-width:250px}
+  .loop{padding:26px 18px}
+  .loop-node{padding:9px 12px;width:100%}
+  .loop-row{flex-direction:column;align-items:stretch}
+  .loop-arrow{transform:rotate(90deg);align-self:center}
+}
+@media (max-width:520px){
+  .brand-txt{display:none}
+  .hero-stats{grid-template-columns:1fr 1fr}
+  .btn{padding:12px 20px;font-size:13.5px}
+}
+
+/* 滚动进场动画 */
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= 顶栏 ================= -->
+<header class="topbar">
+  <div class="brand">
+    <img src="assets/logo.png" alt="Sky Queue Logo">
+    <div class="brand-txt">
+      <b>SKYQUEUE</b>
+      <span>QUEUE INTELLIGENCE</span>
+    </div>
+  </div>
+
+  <nav class="nav" id="nav">
+    <a href="#problem" data-zh="研究背景" data-en="Background">研究背景</a>
+    <a href="#system" data-zh="系统架构" data-en="Architecture">系统架构</a>
+    <a href="#interface" data-zh="界面展示" data-en="Interface">界面展示</a>
+    <a href="#features" data-zh="核心创新" data-en="Innovation">核心创新</a>
+    <a href="#scene" data-zh="应用场景" data-en="Scenarios">应用场景</a>
+    <a href="#privacy" data-zh="技术特性" data-en="Technology">技术特性</a>
+    <a href="#team" data-zh="团队" data-en="Team">团队</a>
+  </nav>
+
+  <div class="langsw" role="group" aria-label="Language">
+    <button data-lang="zh" class="on">CN</button>
+    <button data-lang="en">EN</button>
+  </div>
+
+  <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+</header>
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-badge">
+          <span class="pill">LIVE</span>
+          <span data-zh="纯本地 AI 视觉 · 视频不出本机 · 断网仍可运行"
+                data-en="Fully local AI vision · Video never leaves the device · Works offline">纯本地 AI 视觉 · 视频不出本机 · 断网仍可运行</span>
+        </div>
+
+        <h1 class="hero-h1">
+          <span data-zh="把队伍的真相，" data-en="The Truth About">把队伍的真相，</span><span class="hl" data-zh="还给每一个人" data-en="Back to Everyone">还给每一个人</span>
+          <span class="l2" data-zh="多场景人流分流引导系统" data-en="Multi-Scenario Crowd Guidance System">多场景人流分流引导系统</span>
+        </h1>
+
+        <p class="hero-desc" data-html-zh="复用现场已有的普通摄像头，在一台普通电脑上完成 AI 视觉识别，实时统计各通道人数、判断拥堵、估算等候时间，再通过大屏、手机、语音、地面灯带与随身工牌，把「该往哪走」告诉每一位旅客。<b>视频不出本机，断网仍可用。</b>"
+           data-html-en="Using ordinary cameras already on site, a single everyday computer runs real-time AI vision to count people per lane, grade congestion and estimate wait times — then pushes &quot;which way to go&quot; to every traveler via screens, phones, voice, floor LED strips and a wearable badge. <b>Video never leaves the device; it keeps working offline.</b>">复用现场已有的普通摄像头，在一台普通电脑上完成 AI 视觉识别，实时统计各通道人数、判断拥堵、估算等候时间，再通过大屏、手机、语音、地面灯带与随身工牌，把「该往哪走」告诉每一位旅客。<b>视频不出本机，断网仍可用。</b></p>
+
+        <div class="hero-cta">
+          <a href="#system" class="btn btn-p" data-zh="查看系统架构" data-en="View Architecture">查看系统架构 →</a>
+          <a href="#interface" class="btn btn-g" data-zh="浏览系统界面" data-en="Browse the UI">浏览系统界面</a>
+        </div>
+
+        <div class="hero-stats">
+          <div><b>&lt;1s</b><span data-zh="三端同步延迟" data-en="Sync latency">三端同步延迟</span></div>
+          <div><b>200KB</b><span data-zh="工牌可用内存" data-en="Badge RAM budget">工牌可用内存</span></div>
+          <div><b>0</b><span data-zh="公网依赖" data-en="Cloud dependency">公网依赖</span></div>
+          <div><b>2300+</b><span data-zh="中文字库子集" data-en="CJK glyph subset">中文字库子集</span></div>
+        </div>
+      </div>
+
+      <div class="hero-vis">
+        <div class="logo-frame">
+          <div class="hud-c tl"></div><div class="hud-c tr"></div>
+          <div class="hud-c bl"></div><div class="hud-c br"></div>
+          <div class="logo-plate">
+            <img src="assets/logo.png" alt="Sky Queue 项目 Logo">
+          </div>
+          <div class="hud-tag a">● <i>ONLINE</i> · YOLOv12x</div>
+          <div class="hud-tag b">OPENVINO · <i>GPU</i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll-hint"><span>SCROLL</span><div class="bar"></div></div>
+</section>
+
+<!-- ================= 问题 ================= -->
+<section id="problem" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">01</span><span data-zh="研究背景" data-en="BACKGROUND">研究背景</span></div>
+    <h2 class="title reveal" data-html-zh="被忽视的现象：<em>通道之间严重失衡</em>" data-html-en="The Overlooked Problem: <em>Severe Imbalance Between Lanes</em>">被忽视的现象：<em>通道之间严重失衡</em></h2>
+    <p class="lead reveal" data-html-zh="在机场安检口，常常是一条队伍排出几十米，旁边一条却寥寥数人。这并非管理方不想解决——真正的原因是，<strong>没有人知道每条通道实时的真实人数</strong>。"
+       data-html-en="At airport security, one queue often snakes out dozens of meters while the one beside it is nearly empty. This is not a management failure — it is an information failure. <strong>Nobody knows the real, live headcount of each lane.</strong>">在机场安检口，常常是一条队伍排出几十米，旁边一条却寥寥数人。这并非管理方不想解决——真正的原因是，<strong>没有人知道每条通道实时的真实人数</strong>。</p>
+
+    <div class="prob-grid">
+      <div class="panel prob-card reveal">
+        <h3><div class="ico">◤</div><span data-zh="旅客看不到全局" data-en="Travelers can't see the full picture">旅客看不到全局</span></h3>
+        <p data-zh="旅客选择通道，依据的只是「眼前能看到的队伍长度」。现实中队伍常因拐角、柱子、隔断而遮挡视线——个体的「就近最优」累积成了全局的「整体最差」。"
+           data-html-en="Travelers pick a lane based only on the queue length they can actually see. Reality: lines bend around corners, pillars and partitions. One person's <em>nearest-is-best</em> choice adds up to a globally <em>worst-case</em> outcome.">旅客选择通道，依据的只是「眼前能看到的队伍长度」。现实中队伍常因拐角、柱子、隔断而遮挡视线——个体的「就近最优」累积成了全局的「整体最差」。</p>
+      </div>
+      <div class="panel prob-card reveal">
+        <h3><div class="ico">◥</div><span data-zh="管理员同样缺信息" data-en="Administrators are equally blind">管理员同样缺信息</span></h3>
+        <p data-zh="管理员要靠来回巡场、肉眼观察才能发现拥堵，往往等队伍排乱才知道。排队系统里「看不见」的不只是旅客，还有真正有能力现场处置拥堵的人。"
+           data-en="Staff must patrol on foot to spot congestion, usually arriving after the line has already broken down. The party that can actually fix it on the spot is just as blind as the travelers.">管理员要靠来回巡场、肉眼观察才能发现拥堵，往往等队伍排乱才知道。排队系统里「看不见」的不只是旅客，还有真正有能力现场处置拥堵的人。</p>
+      </div>
+    </div>
+
+    <div class="panel loop reveal">
+      <div class="loop-row">
+        <div class="loop-node"><b data-zh="某条通道偶然人多" data-en="One lane gets busier">某条通道偶然人多</b><span data-zh="随机波动" data-en="by chance"></span></div>
+        <span class="loop-arrow">→</span>
+        <div class="loop-node"><b data-zh="后来者看不到别的通道" data-en="Newcomers can't see the rest">后来者看不到别的通道</b><span data-zh="就近继续加入" data-en="join the nearest anyway"></span></div>
+        <span class="loop-arrow">→</span>
+        <div class="loop-node"><b data-zh="队伍越排越长" data-en="The line keeps growing">队伍越排越长</b><span data-zh="恶性循环" data-en="spiral begins"></span></div>
+        <span class="loop-arrow">→</span>
+        <div class="loop-node"><b data-zh="空闲通道无人知晓" data-en="Idle lanes stay unknown">空闲通道无人知晓</b><span data-zh="信息彻底失效" data-en="information fails"></span></div>
+      </div>
+      <div class="loop-eq">
+        <span data-zh="个体的「就近最优」→ 全局的「整体最差」" data-en="Sum of locally optimal choices → globally worst outcome">个体的「就近最优」→ 全局的「整体最差」</span>
+        <small data-zh="打破循环的唯一方式，是把「全局信息」同时还给旅客和管理员。"
+               data-en="The only way out is to hand the full picture back to both travelers and staff.">打破循环的唯一方式，是把「全局信息」同时还给旅客和管理员。</small>
+      </div>
+    </div>
+
+    <div class="tbl-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th data-zh="现有方案" data-en="Existing Approach">现有方案</th>
+            <th data-zh="感知方式" data-en="Sensing">感知方式</th>
+            <th data-zh="主要不足" data-en="Key Limitation">主要不足</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td data-zh="人工巡查 + 喊话" data-en="Manual patrol &amp; shouting">人工巡查 + 喊话</td><td data-zh="人眼" data-en="Human eyes">人眼</td><td class="bad" data-zh="滞后、不精确、费人力，给不出具体数字" data-en="Lagging, imprecise, labor-intensive, no concrete numbers">滞后、不精确、费人力，给不出具体数字</td></tr>
+          <tr><td data-zh="排队叫号系统" data-en="Queue-number ticketing">排队叫号系统</td><td data-zh="取号记录" data-en="Ticket records">取号记录</td><td class="bad" data-zh="要专门硬件；只管取号顺序，看不到没取号的人" data-en="Needs dedicated hardware; only tracks ticket order, blind to people who never took one">要专门硬件；只管取号顺序，看不到没取号的人</td></tr>
+          <tr><td data-zh="闸机 / 红外计数" data-en="Turnstile / infrared counting">闸机 / 红外计数</td><td data-zh="通过事件" data-en="Passage events">通过事件</td><td class="bad" data-zh="只统计「总共过了多少人」，数不出「现在排着多少人」" data-en="Counts &quot;total passed&quot;, cannot answer &quot;how many are waiting right now&quot;">只统计「总共过了多少人」，数不出「现在排着多少人」</td></tr>
+          <tr><td data-zh="云端 AI 视频分析" data-en="Cloud AI video analytics">云端 AI 视频分析</td><td data-zh="视频传云端" data-en="Video streamed to cloud">视频传云端</td><td class="bad" data-zh="有隐私风险；依赖网络，断网就失效；费用高" data-en="Privacy risk; network-dependent, fails offline; costly">有隐私风险；依赖网络，断网就失效；费用高</td></tr>
+          <tr><td data-zh="人群密度估计" data-en="Crowd density estimation">人群密度估计</td><td data-zh="密度图" data-en="Density maps">密度图</td><td class="bad" data-zh="难以按具体通道切分，普通电脑上难以实时运行" data-en="Hard to segment per lane; not real-time on ordinary PCs">难以按具体通道切分，普通电脑上难以实时运行</td></tr>
+          <tr class="hl">
+            <td data-zh="Sky Queue（本项目）" data-en="Sky Queue (this project)">Sky Queue（本项目）</td>
+            <td data-zh="现场摄像头 + 本地 AI" data-en="On-site cameras + local AI">现场摄像头 + 本地 AI</td>
+            <td class="us" data-zh="低成本、纯本地、实时、可分流" data-en="Low cost, fully local, real time, and it actually guides">低成本、纯本地、实时、可分流</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 架构 ================= -->
+<section id="system" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">02</span><span data-zh="系统架构" data-en="ARCHITECTURE">系统架构</span></div>
+    <h2 class="title reveal" data-html-zh="感知 — 认知 — 行动 <em>五层结构</em>" data-html-en="Perceive — Decide — Act: <em>A Five-Layer Stack</em>">感知 — 认知 — 行动 <em>五层结构</em></h2>
+    <p class="lead reveal" data-html-zh="自下而上分为五层。每一路摄像头跑在独立进程中，模型在每进程各加载一份；MQTT 是所有硬件端共同的数据出口——<strong>一次识别，多端受益</strong>。"
+       data-html-en="Five layers, bottom-up. Each camera runs in its own process with its own model copy; MQTT is the shared data outlet for every hardware endpoint — <strong>one detection, many beneficiaries</strong>.">自下而上分为五层。每一路摄像头跑在独立进程中，模型在每进程各加载一份；MQTT 是所有硬件端共同的数据出口——<strong>一次识别，多端受益</strong>。</p>
+
+    <div class="arch">
+      <div class="arch-layer reveal">
+        <div class="k"><b data-zh="展示层" data-en="Presentation">展示层</b><span>LAYER 05</span></div>
+        <div class="v">
+          <span class="chip" data-zh="手机版" data-en="Mobile">手机版</span>
+          <span class="chip" data-zh="大屏版" data-en="Big Screen">大屏版</span>
+          <span class="chip" data-zh="管理端" data-en="Admin Console">管理端</span>
+          <span class="chip" data-zh="智能工牌（随身展示端）" data-en="AI Passport (wearable)">智能工牌（随身展示端）</span>
+        </div>
+      </div>
+      <div class="arch-layer reveal">
+        <div class="k"><b data-zh="服务层" data-en="Service">服务层</b><span>LAYER 04</span></div>
+        <div class="v">
+          <span class="chip">FastAPI + WebSocket</span>
+          <span class="chip" data-zh="视频流" data-en="Video Stream">视频流</span>
+          <span class="chip" data-zh="历史记录" data-en="History">历史记录</span>
+          <span class="chip" data-zh="AI 估算" data-en="AI Estimator">AI 估算</span>
+          <span class="chip">MQTT 发布</span>
+        </div>
+      </div>
+      <div class="arch-layer reveal">
+        <div class="k"><b data-zh="状态与调度层" data-en="State &amp; Scheduling">状态与调度层</b><span>LAYER 03</span></div>
+        <div class="v">
+          <span class="chip" data-zh="统一状态中心" data-en="Central State">统一状态中心</span>
+          <span class="chip" data-zh="进程管理" data-en="Process Manager">进程管理</span>
+          <span class="chip" data-zh="拥堵分级" data-en="Congestion Grading">拥堵分级</span>
+          <span class="chip" data-zh="快照广播" data-en="Snapshot Broadcast">快照广播</span>
+        </div>
+      </div>
+      <div class="arch-layer reveal">
+        <div class="k"><b data-zh="识别层" data-en="Recognition">识别层</b><span>LAYER 02</span></div>
+        <div class="v">
+          <span class="chip" data-zh="每路摄像头独立进程" data-en="One process per camera">每路摄像头独立进程</span>
+          <span class="chip">YOLOv12x</span>
+          <span class="chip">OpenVINO</span>
+          <span class="chip" data-zh="重叠面积计数" data-en="Overlap-area Counting">重叠面积计数</span>
+          <span class="chip">MJPEG 编码</span>
+        </div>
+      </div>
+      <div class="arch-layer reveal">
+        <div class="k"><b data-zh="接入层" data-en="Access">接入层</b><span>LAYER 01</span></div>
+        <div class="v">
+          <span class="chip">USB / RTSP 摄像头</span>
+          <span class="chip">WS2812 灯带</span>
+          <span class="chip">8×8 点阵屏</span>
+          <span class="chip">NFC 标签</span>
+          <span class="chip">掌控板 ESP32</span>
+          <span class="chip">工牌 ESP32-C3</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 界面 ================= -->
+<section id="interface" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">03</span><span data-zh="界面展示" data-en="INTERFACE">界面展示</span></div>
+    <h2 class="title reveal" data-html-zh="三端同步，<em>1 秒内</em>可见" data-html-en="Three Surfaces, <em>Synced Within a Second</em>">三端同步，<em>1 秒内</em>可见</h2>
+    <p class="lead reveal" data-zh="手机版、大屏版、管理端共用同一个状态中心，通过 WebSocket 长连接保持一致。管理员改配置，现场大屏和旅客手机秒级更新，不需要刷新页面。"
+       data-en="Mobile, big screen and admin console all read from the same state center over a persistent WebSocket. When an admin changes settings, the venue screen and travelers' phones update within a second — no refresh needed.">手机版、大屏版、管理端共用同一个状态中心，通过 WebSocket 长连接保持一致。管理员改配置，现场大屏和旅客手机秒级更新，不需要刷新页面。</p>
+
+    <!-- 大屏 + 手机 -->
+    <div class="tri">
+      <div class="shot reveal">
+        <div class="shot-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <b>/screen · 大屏版</b>
+          <span class="live">LIVE</span>
+        </div>
+        <img src="assets/ui-screen.png" alt="大屏版界面" loading="lazy">
+        <div class="shot-cap">
+          <b data-zh="大屏版 —— 面向旅客" data-en="Big Screen — for travelers">大屏版 —— 面向旅客</b>
+          <span data-zh="现场大屏自动语音播报推荐通道，右下角生成二维码供旅客扫码。" data-en="The venue screen speaks the recommended lane via TTS and shows a QR code for travelers to scan.">现场大屏自动语音播报推荐通道，右下角生成二维码供旅客扫码。</span>
+        </div>
+      </div>
+
+      <div class="tri-side">
+        <div class="shot tri-phone reveal">
+          <div class="shot-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <b>/ · 手机版</b>
+          </div>
+          <img src="assets/ui-phone.png" alt="手机版界面" loading="lazy">
+          <div class="shot-cap">
+            <b data-zh="手机版 —— 碰一碰接入" data-en="Mobile — tap to connect">手机版 —— 碰一碰接入</b>
+            <span data-zh="手机碰一下现场 NFC 标签，自动连 Wi-Fi 并打开页面。" data-en="Tap an on-site NFC tag to auto-join Wi-Fi and open the page.">手机碰一下现场 NFC 标签，自动连 Wi-Fi 并打开页面。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 实时画面 -->
+    <div class="shot shot-xl reveal">
+      <div class="shot-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <b>/admin · 画面与区域</b>
+        <span class="live">RECOGNIZING</span>
+      </div>
+      <img src="assets/live-view.jpg" alt="实时画面与区域标定" loading="lazy">
+      <div class="shot-cap">
+        <b data-zh="在实时画面上直接画出排队区域" data-en="Draw queue zones directly on the live feed">在实时画面上直接画出排队区域</b>
+        <span data-zh="单击加点、双击闭合，多边形即成为计数区域；右侧同步显示每个区域的归属通道与实时人数。框上方的绿色数字是该目标的识别编号。"
+           data-en="Click to add vertices, double-click to close — the polygon becomes a counting zone. The right panel mirrors every zone with its lane and live headcount. The green number above each box is the detection ID.">单击加点、双击闭合，多边形即成为计数区域；右侧同步显示每个区域的归属通道与实时人数。框上方的绿色数字是该目标的识别编号。</span>
+      </div>
+    </div>
+
+    <!-- 数据看板 + 通道 -->
+    <div class="tri" style="margin-top:20px">
+      <div class="shot reveal">
+        <div class="shot-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <b>/admin · 数据看板</b>
+        </div>
+        <img src="assets/ui-dashboard.png" alt="数据看板" loading="lazy">
+        <div class="shot-cap">
+          <b data-zh="数据看板 —— 历史趋势留存" data-en="Dashboard — trends kept for 7 days">数据看板 —— 历史趋势留存</b>
+          <span data-zh="折线图、柱状图、堆叠图与总面积四种视图；历史数据每 10 秒记录一次，保留 7 天。" data-en="Line, bar, stacked and area views. History is recorded every 10 seconds and kept for 7 days.">折线图、柱状图、堆叠图与总面积四种视图；历史数据每 10 秒记录一次，保留 7 天。</span>
+        </div>
+      </div>
+      <div class="shot reveal">
+        <div class="shot-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <b>/admin · 排队通道</b>
+        </div>
+        <img src="assets/ui-lanes.png" alt="排队通道配置" loading="lazy">
+        <div class="shot-cap">
+          <b data-zh="区域 → 通道两级结构" data-en="Zone → Lane, two-level structure">区域 → 通道两级结构</b>
+          <span data-zh="把画面里的区域与旅客眼里的通道分开，几个互有死角的机位可以拼成同一条通道，人数相加。" data-en="Separates on-screen zones from traveler-facing lanes: several blind-spot cameras can merge into one logical lane, with headcounts summed.">把画面里的区域与旅客眼里的通道分开，几个互有死角的机位可以拼成同一条通道，人数相加。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI 助手 + IoT -->
+    <div class="tri" style="margin-top:20px">
+      <div class="shot reveal">
+        <div class="shot-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <b>/admin · AI 客流分析</b>
+          <span class="live">AI</span>
+        </div>
+        <img src="assets/ai-assist.png" alt="AI 排队管理助手" loading="lazy" style="max-height:520px;object-fit:cover;object-position:top">
+        <div class="shot-cap">
+          <b data-zh="AI 排队管理助手" data-en="AI Queue Assistant">AI 排队管理助手</b>
+          <span data-zh="结合实时人数与近期历史趋势，动态修正等候时间并给出管理建议；AI 不可用时自动回退公式估算。" data-en="Combines live headcounts with recent trends to refine ETAs and advise management; falls back to a formula when unavailable.">结合实时人数与近期历史趋势，动态修正等候时间并给出管理建议；AI 不可用时自动回退公式估算。</span>
+        </div>
+      </div>
+      <div class="shot reveal">
+        <div class="shot-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <b>/admin · 物联网推送</b>
+        </div>
+        <img src="assets/ui-iot.png" alt="物联网推送配置" loading="lazy">
+        <div class="shot-cap">
+          <b data-zh="每区域两路独立 MQTT 主题" data-en="Two independent topics per zone">每区域两路独立 MQTT 主题</b>
+          <span data-zh="一路发拥堵信号（1/0），一路发当前人数，两路均可留空。全部消息带 retain 标志，设备一联网即刻拿到最新数据。" data-en="One topic for the congestion flag (1/0), one for headcount — either can be left blank. All messages are retained, so a device gets current data the moment it connects.">一路发拥堵信号（1/0），一路发当前人数，两路均可留空。全部消息带 retain 标志，设备一联网即刻拿到最新数据。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 核心创新 ================= -->
+<section id="features" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">04</span><span data-zh="核心创新" data-en="INNOVATION">核心创新</span></div>
+    <h2 class="title reveal" data-html-zh="我们做的，<em>不只是数人头</em>" data-html-en="More Than <em>Counting Heads</em>">我们做的，<em>不只是数人头</em></h2>
+    <p class="lead reveal" data-zh="以下七项是我们自己提出并实现的设计，每一项都针对一个真实存在的技术或体验问题。"
+       data-en="Seven designs we proposed and built ourselves — each one answers a real technical or experience problem.">以下七项是我们自己提出并实现的设计，每一项都针对一个真实存在的技术或体验问题。</p>
+
+    <div class="feat-grid">
+      <div class="panel feat reveal">
+        <span class="kicker">01 / COUNTING</span>
+        <div class="fi">▦</div>
+        <h3 data-zh="重叠面积最大归属计数" data-en="Max-Overlap-Area Attribution">重叠面积最大归属计数</h3>
+        <p data-zh="常见做法是「检测框中心点落在哪个区域就算哪边」，但排队时人被前排挡住、检测框下沿外移，中心点会跑偏。我们按重叠面积归属，更符合「人站在哪条队伍里」，并保证一人最多计一次。"
+           data-en="The common approach assigns a person by box center point — but when someone is occluded by the row ahead, the box drifts. We attribute by largest polygon overlap, which better matches where the person actually stands, and guarantees each person is counted at most once.">常见做法是「检测框中心点落在哪个区域就算哪边」，但排队时人被前排挡住、检测框下沿外移，中心点会跑偏。我们按重叠面积归属，更符合「人站在哪条队伍里」，并保证一人最多计一次。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">02 / STRUCTURE</span>
+        <div class="fi">◈</div>
+        <h3 data-zh="「区域 → 通道」两级结构" data-en="Two-Level Zone → Lane Structure">「区域 → 通道」两级结构</h3>
+        <p data-zh="把「摄像头画面里的区域」和「旅客眼里的通道」分开。几个互有死角的机位可以拼成同一条通道、人数相加，不加任何硬件就能看全整条队伍。"
+           data-en="Separates the region in a camera's frame from the lane in a traveler's mind. Several cameras with blind spots merge into a single logical lane with summed headcount — no extra hardware.">把「摄像头画面里的区域」和「旅客眼里的通道」分开。几个互有死角的机位可以拼成同一条通道、人数相加，不加任何硬件就能看全整条队伍。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">03 / HARDWARE</span>
+        <div class="fi">◐</div>
+        <h3 data-zh="硬件可视化分流引导" data-en="Guidance You Can Walk On">硬件可视化分流引导</h3>
+        <p data-zh="分流建议不止显示在屏幕上。地面 WS2812 灯带用颜色（绿/黄/红）表示拥堵程度、跑马灯流动方向指路；通道口 8×8 点阵屏直接显示人数并用箭头引导——不看手机也能跟着走。"
+           data-en="The advice isn't only on screen. Floor LED strips show congestion by color and point the way with a running-light direction; an 8×8 matrix at the lane mouth shows headcount and arrows. Follow it without looking at your phone.">分流建议不止显示在屏幕上。地面 WS2812 灯带用颜色（绿/黄/红）表示拥堵程度、跑马灯流动方向指路；通道口 8×8 点阵屏直接显示人数并用箭头引导——不看手机也能跟着走。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">04 / PASSPORT</span>
+        <div class="fi">▣</div>
+        <h3 data-zh="随身告警终端" data-en="A Wearable Terminal That Finds You">随身告警终端</h3>
+        <p data-zh="一块手表大小的 ESP32-C3 工牌。拥堵时红色闪烁并蜂鸣；按确认键只消音、红色标记保留到恢复畅通才熄灭。「发现拥堵」从「管理员去找屏幕」变成了「告警来找管理员」。"
+           data-en="A watch-sized ESP32-C3 badge. On congestion it flashes red and beeps; the acknowledge key silences it but the red mark stays until the lane recovers. Finding congestion flips from &quot;staff must go find a screen&quot; to &quot;the alert comes to find staff&quot;.">一块手表大小的 ESP32-C3 工牌。拥堵时红色闪烁并蜂鸣；按确认键只消音、红色标记保留到恢复畅通才熄灭。「发现拥堵」从「管理员去找屏幕」变成了「告警来找管理员」。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">05 / ONBOARDING</span>
+        <div class="fi">⊹</div>
+        <h3 data-zh="碰一碰快速接入" data-en="Tap-to-Connect">碰一碰快速接入</h3>
+        <p data-zh="通道口贴一张写入 Wi-Fi 信息与网址的 NFC 标签，手机碰一下就自动连网并打开排队页面——比扫码更快，对拖着行李、不方便腾手的旅客特别友好。"
+           data-en="An NFC tag at the lane mouth carries the Wi-Fi credentials and URL. A phone tap auto-joins the network and opens the page — faster than scanning, and kinder to travelers carrying luggage.">通道口贴一张写入 Wi-Fi 信息与网址的 NFC 标签，手机碰一下就自动连网并打开排队页面——比扫码更快，对拖着行李、不方便腾手的旅客特别友好。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">06 / STABILITY</span>
+        <div class="fi">◈</div>
+        <h3 data-zh="处理「推荐抖动」" data-en="Taming Recommendation Jitter">处理「推荐抖动」</h3>
+        <p data-zh="人流快速变化时，推荐目标通道可能来回切换，反而让人无所适从。我们用播报最小间隔抑制这种抖动，并提出了进一步改进的思路。"
+           data-en="When flows shift fast, the recommended lane can flip back and forth — more confusing than useless. We suppress this with a minimum broadcast interval and have proposed a better approach.">人流快速变化时，推荐目标通道可能来回切换，反而让人无所适从。我们用播报最小间隔抑制这种抖动，并提出了进一步改进的思路。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">07 / EMBEDDED</span>
+        <div class="fi">▤</div>
+        <h3 data-zh="200KB 内存显示任意中文" data-en="Full CJK on a 200KB Budget">200KB 内存显示任意中文</h3>
+        <p data-zh="工牌的姓名、岗位、部门都是用户随便填的，无法预知用字。我们生成了覆盖常见姓氏与取名用字的字体子集（2300 余字），点阵数据约 260KB 存放在 Flash 里按需直读、不占运行内存。"
+           data-en="Names, roles and departments are typed freely, so no glyph set can be pre-known. We generated a subset covering common surnames and given-name characters (2300+), stored as ~260KB of bitmap data in Flash and read on demand — costing no RAM.">工牌的姓名、岗位、部门都是用户随便填的，无法预知用字。我们生成了覆盖常见姓氏与取名用字的字体子集（2300 余字），点阵数据约 260KB 存放在 Flash 里按需直读、不占运行内存。</p>
+      </div>
+
+      <div class="panel feat reveal">
+        <span class="kicker">08 / RESILIENCE</span>
+        <div class="fi">◉</div>
+        <h3 data-zh="降级而非瘫痪" data-en="Degrade, Never Collapse">降级而非瘫痪</h3>
+        <p data-zh="AI 失败自动回退公式；MQTT 连不上照常识别显示；推理设备 NPU→GPU→CPU 自动降级；工牌断网时保留最后数据并标注离线。任何一环出问题，系统整体仍然可用。"
+           data-en="AI failure falls back to the formula; a dead MQTT broker doesn't stop detection; inference degrades NPU→GPU→CPU; the badge keeps the last reading and flags itself offline. One broken link never takes the system down.">AI 失败自动回退公式；MQTT 连不上照常识别显示；推理设备 NPU→GPU→CPU 自动降级；工牌断网时保留最后数据并标注离线。任何一环出问题，系统整体仍然可用。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 场景 ================= -->
+<section id="scene" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">05</span><span data-zh="应用场景" data-en="SCENARIOS">应用场景</span></div>
+    <h2 class="title reveal" data-html-zh="一套系统，<em>快速迁移</em>到不同场所" data-html-en="One System, <em>Quickly Relocated</em>">一套系统，<em>快速迁移</em>到不同场所</h2>
+    <p class="lead reveal" data-zh="我们不用告诉它「这是机场」还是「那是医院」。只要重新配置摄像头与区域，同一套软件就能用在任何有排队的地方。"
+       data-en="The system is never told &quot;this is an airport&quot; or &quot;that is a hospital.&quot; Reconfigure the cameras and zones, and the same software serves anywhere people queue.">我们不用告诉它「这是机场」还是「那是医院」。只要重新配置摄像头与区域，同一套软件就能用在任何有排队的地方。</p>
+
+    <div class="scene-grid">
+      <div class="scene reveal"><span class="si">✈</span>
+        <h3 data-zh="机场 / 车站" data-en="Airports &amp; Stations">机场 / 车站</h3>
+        <p data-zh="安检口、候车厅的通道分流，节假日高峰临时加开通道时快速配置。" data-en="Security and waiting-hall lane balancing; quick reconfiguration when extra lanes open at holiday peaks.">安检口、候车厅的通道分流，节假日高峰临时加开通道时快速配置。</p>
+      </div>
+      <div class="scene reveal"><span class="si">✚</span>
+        <h3 data-zh="医院" data-en="Hospitals">医院</h3>
+        <p data-zh="挂号、缴费、取药窗口的候诊分流；语音播报可单独关闭以免扰民。" data-en="Waiting-room balancing at registration, payment and pharmacy windows; TTS can be muted per context.">挂号、缴费、取药窗口的候诊分流；语音播报可单独关闭以免扰民。</p>
+      </div>
+      <div class="scene reveal"><span class="si">🎓</span>
+        <h3 data-zh="校园" data-en="Campuses">校园</h3>
+        <p data-zh="食堂、办事窗口、打印季的队列引导，成本远低于专用叫号系统。" data-en="Cafeterias, service windows and print queues — far cheaper than dedicated ticketing systems.">食堂、办事窗口、打印季的队列引导，成本远低于专用叫号系统。</p>
+      </div>
+      <div class="scene reveal"><span class="si">🛒</span>
+        <h3 data-zh="商超 / 展馆" data-en="Retail &amp; Venues">商超 / 展馆</h3>
+        <p data-zh="收银台、热门展项的排队引导，节假日大客流场景同样适用。" data-en="Checkout and popular-exhibit queues, equally at home in holiday crowds.">收银台、热门展项的排队引导，节假日大客流场景同样适用。</p>
+      </div>
+    </div>
+
+    <div class="panel flow reveal">
+      <span class="tag" data-zh="迁移只需四步" data-en="Migration in four steps">迁移只需四步</span>
+      <div class="flow-step"><div class="n">1</div><span data-zh="接上摄像头" data-en="Plug in cameras">接上摄像头</span></div>
+      <span class="flow-ar">›</span>
+      <div class="flow-step"><div class="n">2</div><span data-zh="在画面上画出排队区域" data-en="Draw queue zones on the feed">在画面上画出排队区域</span></div>
+      <span class="flow-ar">›</span>
+      <div class="flow-step"><div class="n">3</div><span data-zh="给区域起现场能听懂的名字" data-en="Give zones names staff will say aloud">给区域起现场能听懂的名字</span></div>
+      <span class="flow-ar">›</span>
+      <div class="flow-step"><div class="n">4</div><span data-zh="合并成通道，大屏即刻生效" data-en="Merge into lanes — screen goes live">合并成通道，大屏即刻生效</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 技术特性 ================= -->
+<section id="privacy" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">06</span><span data-zh="技术特性" data-en="TECHNOLOGY">技术特性</span></div>
+    <h2 class="title reveal" data-html-zh="隐私保护，<em>从架构做起</em>" data-html-en="Privacy, <em>By Architecture</em>">隐私保护，<em>从架构做起</em></h2>
+    <p class="lead reveal" data-zh="我们把「视频不出本机」当作设计前提，而不是事后补丁——这既是隐私选择，也是可靠性和成本上的优势。"
+       data-en="&quot;Video never leaves the device&quot; is a design premise, not an afterthought — a privacy choice that also buys reliability and cost.">我们把「视频不出本机」当作设计前提，而不是事后补丁——这既是隐私选择，也是可靠性和成本上的优势。</p>
+
+    <div class="dual">
+      <div class="panel reveal">
+        <h3><span class="badge b-no">NEVER COLLECTED</span><span data-zh="我们从不采集" data-en="What we never collect">我们从不采集</span></h3>
+        <ul>
+          <li data-zh="不做人脸识别，不建立任何身份信息" data-en="No face recognition, no identity data of any kind">不做人脸识别，不建立任何身份信息</li>
+          <li data-zh="不存储、不缓存任何影像画面" data-en="No video is stored or cached">不存储、不缓存任何影像画面</li>
+          <li data-zh="视频流不出本机，不上传任何服务器" data-en="Video never leaves the local machine">视频流不出本机，不上传任何服务器</li>
+          <li data-zh="工牌只接收「人数」和「拥堵」两个数字" data-en="The badge receives exactly two numbers: headcount and congestion">工牌只接收「人数」和「拥堵」两个数字</li>
+        </ul>
+      </div>
+      <div class="panel reveal">
+        <h3><span class="badge b-ok">DESIGNED FOR</span><span data-zh="我们为此设计" data-en="What we designed for">我们为此设计</span></h3>
+        <ul>
+          <li data-zh="OpenVINO 优化后在 Intel 核显本地实时推理" data-en="OpenVINO-optimized, real-time inference on integrated GPUs">OpenVINO 优化后在 Intel 核显本地实时推理</li>
+          <li data-zh="NPU → GPU → CPU 自动降级链" data-en="Automatic NPU → GPU → CPU degradation chain">NPU → GPU → CPU 自动降级链</li>
+          <li data-zh="可选的 AI 文字调用只发送人数与文字" data-en="Optional AI calls send numbers and text only — never frames">可选的 AI 文字调用只发送人数与文字</li>
+          <li data-zh="断网后除 AI 外全部功能照常运行" data-en="Fully functional offline except the AI estimate">断网后除 AI 外全部功能照常运行</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="stack reveal">
+      <span>Python 3.12</span><span>FastAPI</span><span>WebSocket</span><span>YOLOv12x</span>
+      <span>OpenVINO</span><span>Ultralytics</span><span>OpenCV</span><span>MQTT</span>
+      <span>ESP-IDF</span><span>LVGL</span><span>ESP32-C3</span><span>WS2812</span>
+      <span>NFC</span><span>NVS</span><span>DashScope / DeepSeek</span>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 成果 ================= -->
+<section class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">07</span><span data-zh="实测数据" data-en="MEASURED RESULTS">实测数据</span></div>
+    <h2 class="title reveal" data-html-zh="在真实场景里，<em>跑得起来</em>" data-html-en="It Actually <em>Runs in the Field</em>">在真实场景里，<em>跑起来</em></h2>
+    <p class="lead reveal" data-zh="以下数据来自模拟场景与真实场景测试，记录于项目报告书。"
+       data-en="Figures below come from lab and field testing, as recorded in the project report.">以下数据来自模拟场景与真实场景测试，记录于项目报告书。</p>
+
+    <div class="metric-grid">
+      <div class="metric reveal"><b>&lt;1s</b><span data-zh="端到端延迟" data-en="End-to-end latency">端到端延迟</span></div>
+      <div class="metric reveal"><b>1s</b><span data-zh="人数变化全端同步" data-en="Sync after headcount change">人数变化全端同步</span></div>
+      <div class="metric reveal"><b>3</b><span data-zh="档拥堵分级" data-en="Congestion levels">档拥堵分级</span></div>
+      <div class="metric reveal"><b>10s</b><span data-zh="历史记录间隔" data-en="History sample interval">历史记录间隔</span></div>
+      <div class="metric reveal"><b>7d</b><span data-zh="数据保留天数" data-en="Data retention">数据保留天数</span></div>
+      <div class="metric reveal"><b>30s</b><span data-zh="断线重连上限" data-en="Max reconnect backoff">断线重连上限</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="sec-line"></div>
+
+<!-- ================= 团队 ================= -->
+<section id="team" class="sec-pad">
+  <div class="wrap">
+    <div class="eyebrow reveal"><span class="no">08</span><span data-zh="团队" data-en="TEAM">团队</span></div>
+    <h2 class="title reveal" data-zh="我们做了什么" data-en="What We Built">我们做了什么</h2>
+    <p class="lead reveal" data-zh="从一次排队的不愉快经历出发，完整走了一遍「发现问题 — 调研分析 — 设计 — 制作 — 测试 — 迭代」。"
+       data-en="It started with one bad queue experience, and grew through the full loop: spot a problem, research, design, build, test, iterate.">从一次排队的不愉快经历出发，完整走了一遍「发现问题 — 调研分析 — 设计 — 制作 — 测试 — 迭代」。</p>
+
+    <div class="team">
+      <div class="member reveal"><div class="av">王</div>
+        <h3 data-zh="王柏涵" data-en="Wang Bohan">王柏涵</h3>
+        <p data-zh="系统架构 / 后端 / 三端互联" data-en="Architecture, backend, multi-surface sync">系统架构 / 后端 / 三端互联</p>
+      </div>
+      <div class="member reveal"><div class="av">杨</div>
+        <h3 data-zh="杨润林" data-en="Yang Runlin">杨润林</h3>
+        <p data-zh="识别算法 / 嵌入式固件 / 物联网" data-en="Vision algorithm, firmware, IoT">识别算法 / 嵌入式固件 / 物联网</p>
+      </div>
+    </div>
+
+    <div class="panel reveal" style="margin-top:28px;padding:26px 28px">
+      <p style="color:var(--tx-2);font-size:14.5px" data-zh="本项目为团队自主研发，完整走过「发现问题 — 调研分析 — 方案设计 — 原型制作 — 实验测试 — 迭代优化」的完整流程。"
+         data-en="Independently developed by the team through the complete loop: identify a problem, research, design, prototype, test and iterate.">本项目为团队自主研发，完整走过「发现问题 — 调研分析 — 方案设计 — 原型制作 — 实验测试 — 迭代优化」的完整流程。</p>
+    </div>
+
+    <div class="panel loop reveal" style="margin-top:20px">
+      <div class="loop-eq" style="margin:0">
+        <span data-zh="我们希望 Sky Queue 能真正走进机场、车站、医院与校园" data-en="We hope Sky Queue truly reaches airports, stations, hospitals and campuses">我们希望 Sky Queue 能真正走进机场、车站、医院与校园</span>
+        <small data-zh="用一台电脑和几个摄像头，缓解公共场所排队无序的难题。"
+               data-en="One computer and a few cameras, easing the disorder of public queues.">用一台电脑和几个摄像头，缓解公共场所排队无序的难题。</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 页脚 ================= -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <div class="brand">
+          <img src="assets/logo.png" alt="Sky Queue Logo">
+          <div class="brand-txt"><b>SKYQUEUE</b><span>QUEUE INTELLIGENCE</span></div>
+        </div>
+        <p data-zh="多场景人流分流引导系统。纯本地 AI 视觉，视频不出本机，断网仍可运行。"
+           data-en="A multi-scenario crowd guidance system. Local AI vision — video never leaves the device, and it keeps working offline.">多场景人流分流引导系统。纯本地 AI 视觉，视频不出本机，断网仍可运行。</p>
+      </div>
+      <div class="foot-col">
+        <h4 data-zh="导航" data-en="Navigate">导航</h4>
+        <a href="#problem" data-zh="研究背景" data-en="Background">研究背景</a>
+        <a href="#system" data-zh="系统架构" data-en="Architecture">系统架构</a>
+        <a href="#interface" data-zh="界面展示" data-en="Interface">界面展示</a>
+        <a href="#features" data-zh="核心创新" data-en="Innovation">核心创新</a>
+      </div>
+      <div class="foot-col">
+        <h4 data-zh="章节" data-en="Sections">章节</h4>
+        <a href="#scene" data-zh="应用场景" data-en="Scenarios">应用场景</a>
+        <a href="#privacy" data-zh="技术特性" data-en="Technology">技术特性</a>
+        <a href="#team" data-zh="团队" data-en="Team">团队</a>
+      </div>
+    </div>
+    <div class="foot-bot">
+      <span data-zh="Sky Queue · 多场景人流分流引导系统" data-en="Sky Queue · Multi-Scenario Crowd Guidance System">Sky Queue · 多场景人流分流引导系统</span>
+      <span style="font-family:'SF Mono',Consolas,monospace;font-size:11px;letter-spacing:.1em;color:var(--tx-3)">LOCAL-FIRST · NO CLOUD · NO FACE RECOGNITION</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------- 语言切换 ---------- */
+  var KEY='sq_site_lang';
+  var body=document.body;
+  var btns=document.querySelectorAll('.langsw button');
+
+  function apply(lang){
+    // 静态 data-zh / data-en
+    document.querySelectorAll('[data-zh][data-en]').forEach(function(el){
+      var v = el.getAttribute(lang==='en' ? 'data-en' : 'data-zh');
+      if(v) el.textContent = v;
+    });
+    // 含 HTML 的说明（如 <b>、<em>）走 data-html-zh / data-html-en
+    document.querySelectorAll('[data-html-zh][data-html-en]').forEach(function(el){
+      el.innerHTML = el.getAttribute(lang==='en' ? 'data-html-en' : 'data-html-zh');
+    });
+    document.documentElement.lang = (lang==='en') ? 'en' : 'zh-CN';
+    body.classList.toggle('en', lang==='en');
+    btns.forEach(function(b){ b.classList.toggle('on', b.dataset.lang===lang); });
+    try{ localStorage.setItem(KEY, lang); }catch(e){}
+  }
+
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){ apply(b.dataset.lang); });
+  });
+
+  var saved='zh';
+  try{ saved = localStorage.getItem(KEY) || 'zh'; }catch(e){}
+  apply(saved==='en' ? 'en' : 'zh');
+
+  /* ---------- 移动端菜单 ---------- */
+  var nav=document.getElementById('nav');
+  var mb=document.getElementById('menuBtn');
+  if(mb){
+    mb.addEventListener('click', function(){ nav.classList.toggle('open'); });
+    nav.addEventListener('click', function(e){
+      if(e.target.tagName==='A') nav.classList.remove('open');
+    });
+  }
+
+  /* ---------- 滚动进场 ---------- */
+  var els=document.querySelectorAll('.reveal');
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); }
+      });
+    },{ threshold:0.12, rootMargin:'0px 0px -8% 0px' });
+    els.forEach(function(el){ io.observe(el); });
+  }else{
+    els.forEach(function(el){ el.classList.add('in'); });
+  }
+})();
+</script>
+</body>
+</html>
